@@ -519,11 +519,11 @@ impl Connection {
 
     /// Reads a register command with a timeout.
     pub(crate) fn read(&mut self, len: usize) -> Result<Option<Vec<u8>>, Error> {
-        let mut tmp = Vec::with_capacity(1024);
+        let mut tmp = vector::BoundedWriter::new(1024);
         loop {
             self.decoder.decode(&mut self.serial, &mut tmp)?;
             if tmp.len() >= len {
-                return Ok(Some(tmp));
+                return Ok(Some(tmp.into()));
             }
         }
     }
@@ -641,6 +641,49 @@ mod encoder {
 
         fn flush(&mut self) -> std::io::Result<()> {
             self.writer.flush()
+        }
+    }
+}
+
+mod vector {
+    use std::io::Write;
+
+    pub struct BoundedWriter {
+        data: Vec<u8>,
+        max_len: usize,
+    }
+
+    impl BoundedWriter {
+        pub fn new(max_capacity: usize) -> Self {
+            Self {
+                data: Vec::with_capacity(max_capacity),
+                max_len: max_capacity
+            }
+        }
+
+        pub fn len(&self) -> usize {
+            self.data.len()
+        }
+    }
+
+    impl Into<Vec<u8>> for BoundedWriter {
+        fn into(self) -> Vec<u8> {
+            self.data
+        }
+    }
+
+    impl Write for BoundedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.data.len() + buf.len() > self.max_len {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, "Max write limit exceeded"));
+            }
+
+            self.data.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
         }
     }
 }
